@@ -24,6 +24,9 @@
 #include "activities/network/CrossPointWebServerActivity.h"
 #include "activities/reader/ReaderActivity.h"
 #include "activities/settings/SettingsActivity.h"
+#include "activities/game/GameActivity.h"
+#include "activities/game/GameTitleActivity.h"
+#include "game/GameState.h"
 #include "activities/util/FullScreenMessageActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -246,10 +249,27 @@ void onGoToBrowser() {
   enterNewActivity(new OpdsBookBrowserActivity(renderer, mappedInputManager, onGoHome));
 }
 
+void onStartGame();
+
+void onGoToGame() {
+  exitActivity();
+  enterNewActivity(new GameTitleActivity(renderer, mappedInputManager, onStartGame, onGoHome));
+}
+
+void onStartGame() {
+  // If no save exists, seed a new game
+  if (!GAME_STATE.hasSaveFile()) {
+    // Use millis() as entropy source for the seed
+    GAME_STATE.newGame(static_cast<uint32_t>(millis()) ^ 0xDEADBEEF);
+  }
+  exitActivity();
+  enterNewActivity(new GameActivity(renderer, mappedInputManager, onGoHome));
+}
+
 void onGoHome() {
   exitActivity();
   enterNewActivity(new HomeActivity(renderer, mappedInputManager, onGoToReader, onGoToMyLibrary, onGoToRecentBooks,
-                                    onGoToSettings, onGoToFileTransfer, onGoToBrowser));
+                                    onGoToSettings, onGoToFileTransfer, onGoToBrowser, onGoToGame));
 }
 
 void setupDisplayAndFonts() {
