@@ -25,6 +25,14 @@ usability over "swiss-army-knife" functionality.
 * **Library Management:** E.g. Simple, intuitive ways to organize and navigate a collection of books.
 * **Local Transfer:** E.g. Simple, "pull" based book loading via a basic web-server or public and widely-used standards.
 * **Language Support:** E.g. Support for multiple languages both in the reader and in the interfaces.
+* **Reference Tools:** E.g. Local dictionary lookup. Providing quick, offline definitions to enhance comprehension 
+  without breaking focus.
+* **Clock Display (device dependent):** 
+
+| Device | Scope |
+| -- | -- |
+| X3 | The X3 uses a dedicated DS3231 RTC, which maintains accurate time across sleep cycles and can be treated as a reliable wall clock. |
+| X4 | The X4 relies on the ESP32-C3's internal RTC, which drifts significantly during deep sleep. NTP sync could correct this, with an appropriate user experience around connecting to the internet on wake or on demand. This causes some tension with the **Active Connectivity** section below, so please open a discussion about this UX if it's a feature you would find useful. |
 
 ### Out-of-Scope
 
@@ -34,8 +42,14 @@ usability over "swiss-army-knife" functionality.
 * **Active Connectivity:** No RSS readers, News aggregators, or Web browsers. Background Wi-Fi tasks drain the battery
   and complicate the single-core CPU's execution.
 * **Media Playback:** No Audio players or Audio-books.
-* **Complex Reader Features:** No highlighting, notes, or dictionary lookup. These features are better suited for
-  devices with better input capabilities and more powerful chips.
+* **Complex Annotation:** No typed out notes. These features are better suited for devices with better input
+  capabilities and more powerful chips.
+
+### In-scope — Technically Unsupported
+
+*These features align with CrossPoint's goals but are impractical on the current hardware or produce poor UX.*
+
+* **PDF Rendering:** PDFs are fixed-layout documents, so rendering them requires displaying pages as images rather than reflowable text — resulting in constant panning and zooming that makes for a poor reading experience on e-ink.
 
 ## 3. Idea Evaluation
 

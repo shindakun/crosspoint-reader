@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 
 #include "GameMenuActivity.h"
+#include "activities/ActivityManager.h"
+#include "activities/ActivityResult.h"
 #include "MappedInputManager.h"
 #include "game/GameSave.h"
 
@@ -91,8 +94,10 @@ bool isWalkable(game::Tile tile) {
 void GameActivity::onEnter() {
   Activity::onEnter();
 
-  renderingMutex = xSemaphoreCreateMutex();
-  gameRenderer.init(renderer);
+  if (!rendererInitialized) {
+    gameRenderer.init(renderer);
+    rendererInitialized = true;
+  }
 
   // Load save or start new game
   if (GAME_STATE.hasSaveFile()) {
@@ -102,53 +107,16 @@ void GameActivity::onEnter() {
 
   loadOrGenerateLevel();
   computeVisibility();
-  updateRequired = true;
-
-  xTaskCreate(&GameActivity::taskTrampoline, "GameTask", 8192, this, 1, &displayTaskHandle);
+  requestUpdate();
 }
 
-void GameActivity::onExit() {
-  ActivityWithSubactivity::onExit();
-
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
-  if (displayTaskHandle) {
-    vTaskDelete(displayTaskHandle);
-    displayTaskHandle = nullptr;
-  }
-  vSemaphoreDelete(renderingMutex);
-  renderingMutex = nullptr;
-}
-
-// --- Render Task ---
-
-void GameActivity::taskTrampoline(void* param) {
-  static_cast<GameActivity*>(param)->displayTaskLoop();
-}
-
-void GameActivity::displayTaskLoop() {
-  while (true) {
-    if (updateRequired && !subActivity) {
-      updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      render();
-      xSemaphoreGive(renderingMutex);
-    }
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
-
-void GameActivity::render() {
+void GameActivity::render(RenderLock&&) {
   gameRenderer.draw(renderer, tiles, fogOfWar, monsters, monsterCount, levelItems, itemCount, visible);
 }
 
 // --- Input ---
 
 void GameActivity::loop() {
-  if (subActivity) {
-    subActivity->loop();
-    return;
-  }
-
   using Button = MappedInputManager::Button;
 
   if (mappedInput.wasReleased(Button::Up)) {
@@ -169,29 +137,23 @@ void GameActivity::loop() {
 // --- Game Menu ---
 
 void GameActivity::openGameMenu() {
-  auto onResume = [this] {
-    xSemaphoreTake(renderingMutex, portMAX_DELAY);
-    exitActivity();
-    xSemaphoreGive(renderingMutex);
-    updateRequired = true;
-  };
-
-  auto onSaveQuit = [this] {
-    saveCurrentLevel();
-    GAME_STATE.saveToFile();
-    GAME_STATE.addMessage("Game saved.");
-    onGoHome();
-  };
-
-  auto onAbandon = [this] {
-    GameSave::deleteAll();
-    GAME_STATE.deleteSaveFile();
-    onGoHome();
-  };
-
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
-  enterNewActivity(new GameMenuActivity(renderer, mappedInput, onResume, onSaveQuit, onAbandon));
-  xSemaphoreGive(renderingMutex);
+  startActivityForResult(std::make_unique<GameMenuActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           if (auto* menu = std::get_if<MenuResult>(&result.data)) {
+                             auto action = static_cast<GameMenuActivity::Action>(menu->action);
+                             if (action == GameMenuActivity::Action::SaveQuit) {
+                               saveCurrentLevel();
+                               GAME_STATE.saveToFile();
+                               GAME_STATE.addMessage("Game saved.");
+                               activityManager.goHome();
+                             } else if (action == GameMenuActivity::Action::Abandon) {
+                               GameSave::deleteAll();
+                               GAME_STATE.deleteSaveFile();
+                               activityManager.goHome();
+                             }
+                             // Resume: just let the activity resume; framework will re-render
+                           }
+                         });
 }
 
 // --- Movement ---
@@ -219,7 +181,7 @@ void GameActivity::handleMove(int dx, int dy) {
     p.turnCount++;
     processMonsterTurns();
     computeVisibility();
-    updateRequired = true;
+    requestUpdate();
     return;
   }
 
@@ -267,7 +229,7 @@ void GameActivity::handleMove(int dx, int dy) {
       p.turnCount++;
       processMonsterTurns();
       computeVisibility();
-      updateRequired = true;
+      requestUpdate();
       return;
     }
   }
@@ -279,7 +241,7 @@ void GameActivity::handleMove(int dx, int dy) {
 
   processMonsterTurns();
   computeVisibility();
-  updateRequired = true;
+  requestUpdate();
 }
 
 // --- Action (Confirm button) ---
@@ -300,7 +262,7 @@ void GameActivity::handleAction() {
   if (here == game::Tile::StairsDown) {
     if (p.dungeonDepth >= game::MAX_DEPTH) {
       GAME_STATE.addMessage("The stairs are blocked by rubble.");
-      updateRequired = true;
+      requestUpdate();
       return;
     }
     saveCurrentLevel();
@@ -316,14 +278,14 @@ void GameActivity::handleAction() {
       }
     }
     computeVisibility();
-    updateRequired = true;
+    requestUpdate();
     return;
   }
 
   if (here == game::Tile::StairsUp) {
     if (p.dungeonDepth <= 1) {
       GAME_STATE.addMessage("You see daylight above... but the mines call.");
-      updateRequired = true;
+      requestUpdate();
       return;
     }
     saveCurrentLevel();
@@ -339,7 +301,7 @@ void GameActivity::handleAction() {
       }
     }
     computeVisibility();
-    updateRequired = true;
+    requestUpdate();
     return;
   }
 
@@ -365,7 +327,7 @@ void GameActivity::handleAction() {
       } else {
         if (GAME_STATE.inventoryCount >= game::MAX_INVENTORY) {
           GAME_STATE.addMessage("Your pack is full!");
-          updateRequired = true;
+          requestUpdate();
           return;
         }
         // Move item to inventory
@@ -391,13 +353,13 @@ void GameActivity::handleAction() {
 
       p.turnCount++;
       processMonsterTurns();
-      updateRequired = true;
+      requestUpdate();
       return;
     }
   }
 
   GAME_STATE.addMessage("Nothing to do here.");
-  updateRequired = true;
+  requestUpdate();
 }
 
 // --- Monster AI ---
@@ -577,7 +539,7 @@ void GameActivity::checkLevelUp() {
 
 void GameActivity::handlePlayerDeath() {
   GAME_STATE.addMessage("Press any key to return...");
-  updateRequired = true;
+  requestUpdate();
 
   // Delete save data — permadeath!
   GameSave::deleteAll();
@@ -594,7 +556,7 @@ void GameActivity::handleVictory() {
   char msgBuf[64];
   snprintf(msgBuf, sizeof(msgBuf), "Victory! Depth %u, Level %u, %u turns.", p.dungeonDepth, p.charLevel, p.turnCount);
   GAME_STATE.addMessage(msgBuf);
-  updateRequired = true;
+  requestUpdate();
 
   // Clear save — the quest is complete
   GameSave::deleteAll();

@@ -13,48 +13,12 @@
 #include "game/GameState.h"
 #include "game/GameTypes.h"
 
-// --- Lifecycle ---
-
-void GameMenuActivity::taskTrampoline(void* param) {
-  static_cast<GameMenuActivity*>(param)->displayTaskLoop();
-}
-
 void GameMenuActivity::onEnter() {
   Activity::onEnter();
-
-  renderingMutex = xSemaphoreCreateMutex();
   currentScreen = Screen::Menu;
   selectedIndex = 0;
-  updateRequired = true;
-
-  xTaskCreate(&GameMenuActivity::taskTrampoline, "GameMenuTask", 4096, this, 1, &displayTaskHandle);
+  requestUpdate();
 }
-
-void GameMenuActivity::onExit() {
-  Activity::onExit();
-
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
-  if (displayTaskHandle) {
-    vTaskDelete(displayTaskHandle);
-    displayTaskHandle = nullptr;
-  }
-  vSemaphoreDelete(renderingMutex);
-  renderingMutex = nullptr;
-}
-
-void GameMenuActivity::displayTaskLoop() {
-  while (true) {
-    if (updateRequired) {
-      updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
-      render();
-      xSemaphoreGive(renderingMutex);
-    }
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
-
-// --- Input ---
 
 void GameMenuActivity::loop() {
   using Button = MappedInputManager::Button;
@@ -65,40 +29,44 @@ void GameMenuActivity::loop() {
 
       buttonNavigator.onNextRelease([this] {
         selectedIndex = ButtonNavigator::nextIndex(selectedIndex, menuSize);
-        updateRequired = true;
+        requestUpdate();
       });
 
       buttonNavigator.onPreviousRelease([this] {
         selectedIndex = ButtonNavigator::previousIndex(selectedIndex, menuSize);
-        updateRequired = true;
+        requestUpdate();
       });
 
       if (mappedInput.wasReleased(Button::Confirm)) {
         switch (selectedIndex) {
           case 0:  // Resume
-            onResume();
+            setResult(MenuResult{static_cast<int>(Action::Resume)});
+            finish();
             return;
           case 1:  // Inventory
             currentScreen = Screen::Inventory;
             selectedIndex = 0;
-            updateRequired = true;
+            requestUpdate();
             break;
           case 2:  // Character
             currentScreen = Screen::Character;
             selectedIndex = 0;
-            updateRequired = true;
+            requestUpdate();
             break;
           case 3:  // Save & Quit
-            onSaveQuit();
+            setResult(MenuResult{static_cast<int>(Action::SaveQuit)});
+            finish();
             return;
           case 4:  // Abandon Run
-            onAbandon();
+            setResult(MenuResult{static_cast<int>(Action::Abandon)});
+            finish();
             return;
         }
       }
 
       if (mappedInput.wasReleased(Button::Back)) {
-        onResume();
+        setResult(MenuResult{static_cast<int>(Action::Resume)});
+        finish();
         return;
       }
       break;
@@ -107,34 +75,33 @@ void GameMenuActivity::loop() {
     case Screen::Inventory: {
       int invCount = static_cast<int>(GAME_STATE.inventoryCount);
       if (invCount == 0) {
-        // Empty inventory — just go back
         if (mappedInput.wasReleased(Button::Back) || mappedInput.wasReleased(Button::Confirm)) {
           currentScreen = Screen::Menu;
           selectedIndex = 1;
-          updateRequired = true;
+          requestUpdate();
         }
         break;
       }
 
       buttonNavigator.onNextRelease([this, invCount] {
         selectedIndex = ButtonNavigator::nextIndex(selectedIndex, invCount);
-        updateRequired = true;
+        requestUpdate();
       });
 
       buttonNavigator.onPreviousRelease([this, invCount] {
         selectedIndex = ButtonNavigator::previousIndex(selectedIndex, invCount);
-        updateRequired = true;
+        requestUpdate();
       });
 
       if (mappedInput.wasReleased(Button::Confirm)) {
         useInventoryItem(selectedIndex);
-        updateRequired = true;
+        requestUpdate();
       }
 
       if (mappedInput.wasReleased(Button::Back)) {
         currentScreen = Screen::Menu;
         selectedIndex = 1;
-        updateRequired = true;
+        requestUpdate();
       }
       break;
     }
@@ -143,7 +110,7 @@ void GameMenuActivity::loop() {
       if (mappedInput.wasReleased(Button::Back) || mappedInput.wasReleased(Button::Confirm)) {
         currentScreen = Screen::Menu;
         selectedIndex = 2;
-        updateRequired = true;
+        requestUpdate();
       }
       break;
     }
@@ -201,14 +168,12 @@ void GameMenuActivity::useInventoryItem(int index) {
 
     case game::ItemType::Scroll:
       if (item.subtype == 0) {  // Identify
-        // Mark all inventory as identified
         for (uint8_t i = 0; i < GAME_STATE.inventoryCount; i++) {
           GAME_STATE.inventory[i].flags |= static_cast<uint8_t>(game::ItemFlag::Identified);
         }
         snprintf(msgBuf, sizeof(msgBuf), "Your items glow briefly.");
         consumed = true;
       } else if (item.subtype == 1) {  // Teleport
-        // Handled back in game activity — for now just message
         snprintf(msgBuf, sizeof(msgBuf), "You blink! (use in dungeon)");
         consumed = true;
       } else if (item.subtype == 2) {  // Mapping
@@ -223,7 +188,6 @@ void GameMenuActivity::useInventoryItem(int index) {
         item.flags &= ~static_cast<uint8_t>(game::ItemFlag::Equipped);
         snprintf(msgBuf, sizeof(msgBuf), "Unequipped.");
       } else {
-        // Unequip any existing item of same type
         for (uint8_t i = 0; i < GAME_STATE.inventoryCount; i++) {
           if (static_cast<int>(i) != index && GAME_STATE.inventory[i].type == item.type &&
               (GAME_STATE.inventory[i].flags & static_cast<uint8_t>(game::ItemFlag::Equipped))) {
@@ -239,7 +203,6 @@ void GameMenuActivity::useInventoryItem(int index) {
   GAME_STATE.addMessage(msgBuf);
 
   if (consumed) {
-    // Remove item by shifting
     for (int i = index; i < GAME_STATE.inventoryCount - 1; i++) {
       GAME_STATE.inventory[i] = GAME_STATE.inventory[i + 1];
     }
@@ -252,7 +215,7 @@ void GameMenuActivity::useInventoryItem(int index) {
 
 // --- Rendering ---
 
-void GameMenuActivity::render() {
+void GameMenuActivity::render(RenderLock&&) {
   switch (currentScreen) {
     case Screen::Menu:
       renderMenu();
@@ -311,7 +274,6 @@ void GameMenuActivity::renderInventory() {
         renderer, Rect(0, contentTop, pageWidth, contentHeight), invCount, selectedIndex,
         [](int index) {
           const auto& item = GAME_STATE.inventory[index];
-          // Find the item name from definitions
           for (int d = 0; d < game::ITEM_DEF_COUNT; d++) {
             if (game::ITEM_DEFS[d].type == item.type && game::ITEM_DEFS[d].subtype == item.subtype) {
               std::string name = game::ITEM_DEFS[d].name;

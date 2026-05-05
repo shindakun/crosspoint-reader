@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <JpegToBmpConverter.h>
+#include <Logging.h>
 
 Txt::Txt(std::string path, std::string cacheBasePath)
     : filepath(std::move(path)), cacheBasePath(std::move(cacheBasePath)) {
@@ -16,13 +17,13 @@ bool Txt::load() {
   }
 
   if (!Storage.exists(filepath.c_str())) {
-    Serial.printf("[%lu] [TXT] File does not exist: %s\n", millis(), filepath.c_str());
+    LOG_ERR("TXT", "File does not exist: %s", filepath.c_str());
     return false;
   }
 
   FsFile file;
   if (!Storage.openFileForRead("TXT", filepath, file)) {
-    Serial.printf("[%lu] [TXT] Failed to open file: %s\n", millis(), filepath.c_str());
+    LOG_ERR("TXT", "Failed to open file: %s", filepath.c_str());
     return false;
   }
 
@@ -30,7 +31,7 @@ bool Txt::load() {
   file.close();
 
   loaded = true;
-  Serial.printf("[%lu] [TXT] Loaded TXT file: %s (%zu bytes)\n", millis(), filepath.c_str(), fileSize);
+  LOG_DBG("TXT", "Loaded TXT file: %s (%zu bytes)", filepath.c_str(), fileSize);
   return true;
 }
 
@@ -40,7 +41,7 @@ std::string Txt::getTitle() const {
   std::string filename = (lastSlash != std::string::npos) ? filepath.substr(lastSlash + 1) : filepath;
 
   // Remove .txt extension
-  if (filename.length() >= 4 && filename.substr(filename.length() - 4) == ".txt") {
+  if (FsHelpers::hasTxtExtension(filename)) {
     filename = filename.substr(0, filename.length() - 4);
   }
 
@@ -74,7 +75,7 @@ std::string Txt::findCoverImage() const {
   for (const auto& ext : extensions) {
     std::string coverPath = folder + "/" + baseName + ext;
     if (Storage.exists(coverPath.c_str())) {
-      Serial.printf("[%lu] [TXT] Found matching cover image: %s\n", millis(), coverPath.c_str());
+      LOG_DBG("TXT", "Found matching cover image: %s", coverPath.c_str());
       return coverPath;
     }
   }
@@ -85,7 +86,7 @@ std::string Txt::findCoverImage() const {
     for (const auto& ext : extensions) {
       std::string coverPath = folder + "/" + std::string(name) + ext;
       if (Storage.exists(coverPath.c_str())) {
-        Serial.printf("[%lu] [TXT] Found fallback cover image: %s\n", millis(), coverPath.c_str());
+        LOG_DBG("TXT", "Found fallback cover image: %s", coverPath.c_str());
         return coverPath;
       }
     }
@@ -104,29 +105,21 @@ bool Txt::generateCoverBmp() const {
 
   std::string coverImagePath = findCoverImage();
   if (coverImagePath.empty()) {
-    Serial.printf("[%lu] [TXT] No cover image found for TXT file\n", millis());
+    LOG_DBG("TXT", "No cover image found for TXT file");
     return false;
   }
 
   // Setup cache directory
   setupCacheDir();
 
-  // Get file extension
-  const size_t len = coverImagePath.length();
-  const bool isJpg =
-      (len >= 4 && (coverImagePath.substr(len - 4) == ".jpg" || coverImagePath.substr(len - 4) == ".JPG")) ||
-      (len >= 5 && (coverImagePath.substr(len - 5) == ".jpeg" || coverImagePath.substr(len - 5) == ".JPEG"));
-  const bool isBmp = len >= 4 && (coverImagePath.substr(len - 4) == ".bmp" || coverImagePath.substr(len - 4) == ".BMP");
-
-  if (isBmp) {
+  if (FsHelpers::hasBmpExtension(coverImagePath)) {
     // Copy BMP file to cache
-    Serial.printf("[%lu] [TXT] Copying BMP cover image to cache\n", millis());
+    LOG_DBG("TXT", "Copying BMP cover image to cache");
     FsFile src, dst;
     if (!Storage.openFileForRead("TXT", coverImagePath, src)) {
       return false;
     }
     if (!Storage.openFileForWrite("TXT", getCoverBmpPath(), dst)) {
-      src.close();
       return false;
     }
     uint8_t buffer[1024];
@@ -134,38 +127,31 @@ bool Txt::generateCoverBmp() const {
       size_t bytesRead = src.read(buffer, sizeof(buffer));
       dst.write(buffer, bytesRead);
     }
-    src.close();
-    dst.close();
-    Serial.printf("[%lu] [TXT] Copied BMP cover to cache\n", millis());
+    LOG_DBG("TXT", "Copied BMP cover to cache");
     return true;
-  }
-
-  if (isJpg) {
+  } else if (FsHelpers::hasJpgExtension(coverImagePath)) {
     // Convert JPG/JPEG to BMP (same approach as Epub)
-    Serial.printf("[%lu] [TXT] Generating BMP from JPG cover image\n", millis());
+    LOG_DBG("TXT", "Generating BMP from JPG cover image");
     FsFile coverJpg, coverBmp;
     if (!Storage.openFileForRead("TXT", coverImagePath, coverJpg)) {
       return false;
     }
     if (!Storage.openFileForWrite("TXT", getCoverBmpPath(), coverBmp)) {
-      coverJpg.close();
       return false;
     }
     const bool success = JpegToBmpConverter::jpegFileToBmpStream(coverJpg, coverBmp);
-    coverJpg.close();
-    coverBmp.close();
 
     if (!success) {
-      Serial.printf("[%lu] [TXT] Failed to generate BMP from JPG cover image\n", millis());
+      LOG_ERR("TXT", "Failed to generate BMP from JPG cover image");
       Storage.remove(getCoverBmpPath().c_str());
     } else {
-      Serial.printf("[%lu] [TXT] Generated BMP from JPG cover image\n", millis());
+      LOG_DBG("TXT", "Generated BMP from JPG cover image");
     }
     return success;
   }
 
   // PNG files are not supported (would need a PNG decoder)
-  Serial.printf("[%lu] [TXT] Cover image format not supported (only BMP/JPG/JPEG)\n", millis());
+  LOG_ERR("TXT", "Cover image format not supported (only BMP/JPG/JPEG)");
   return false;
 }
 
@@ -180,12 +166,9 @@ bool Txt::readContent(uint8_t* buffer, size_t offset, size_t length) const {
   }
 
   if (!file.seek(offset)) {
-    file.close();
     return false;
   }
 
   size_t bytesRead = file.read(buffer, length);
-  file.close();
-
   return bytesRead > 0;
 }

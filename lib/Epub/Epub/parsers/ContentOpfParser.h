@@ -2,6 +2,7 @@
 #include <Print.h>
 
 #include <algorithm>
+#include <deque>
 #include <vector>
 
 #include "Epub.h"
@@ -37,7 +38,7 @@ class ContentOpfParser final : public Print {
     uint16_t idLen;       // length for collision reduction
     uint32_t fileOffset;  // offset in .items.bin
   };
-  std::vector<ItemIndexEntry> itemIndex;
+  std::deque<ItemIndexEntry> itemIndex;
   bool useItemIndex = false;
 
   static constexpr uint16_t LARGE_SPINE_THRESHOLD = 400;
@@ -63,6 +64,7 @@ class ContentOpfParser final : public Print {
   std::string tocNcxPath;
   std::string tocNavPath;  // EPUB 3 nav document path
   std::string coverItemHref;
+  std::string guideCoverPageHref;  // Guide reference with type="cover" or "cover-page" (points to XHTML wrapper)
   std::string textReferenceHref;
   std::vector<std::string> cssFiles;  // CSS stylesheet paths
 

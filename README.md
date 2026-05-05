@@ -12,7 +12,7 @@ Xteink firmware. It aims to match or improve upon the standard EPUB reading expe
 
 E-paper devices are fantastic for reading, but most commercially available readers are closed systems with limited 
 customisation. The **Xteink X4** is an affordable, e-paper device, however the official firmware remains closed.
-CrossPoint exists partly as a fun side-project and partly to open up the ecosystem and truely unlock the device's
+CrossPoint exists partly as a fun side-project and partly to open up the ecosystem and truly unlock the device's
 potential.
 
 CrossPoint Reader aims to:
@@ -26,7 +26,7 @@ This project is **not affiliated with Xteink**; it's built as a community projec
 ## Features & Usage
 
 - [x] EPUB parsing and rendering (EPUB 2 and EPUB 3)
-- [ ] Image support within EPUB
+- [x] Image support within EPUB
 - [x] Saved reading position
 - [x] File explorer with file picker
   - [x] Basic EPUB picker from root directory
@@ -36,6 +36,7 @@ This project is **not affiliated with Xteink**; it's built as a community projec
   - [x] Cover sleep screen
 - [x] Wifi book upload
 - [x] Wifi OTA updates
+- [x] KOReader Sync integration for cross-device reading progress
 - [x] Configurable font, layout, and display options
   - [ ] User provided fonts
   - [ ] Full UTF support
@@ -43,7 +44,8 @@ This project is **not affiliated with Xteink**; it's built as a community projec
 
 Multi-language support: Read EPUBs in various languages, including English, Spanish, French, German, Italian, Portuguese, Russian, Ukrainian, Polish, Swedish, Norwegian, [and more](./USER_GUIDE.md#supported-languages).
 
-See [the user guide](./USER_GUIDE.md) for instructions on operating CrossPoint. 
+See [the user guide](./USER_GUIDE.md) for instructions on operating CrossPoint, including the
+[KOReader Sync quick setup](./USER_GUIDE.md#365-koreader-sync-quick-setup).
 
 For more details about the scope of the project, see the [SCOPE.md](SCOPE.md) document.
 
@@ -51,7 +53,7 @@ For more details about the scope of the project, see the [SCOPE.md](SCOPE.md) do
 
 ### Web (latest firmware)
 
-1. Connect your Xteink X4 to your computer via USB-C
+1. Connect your Xteink X4 to your computer via USB-C and wake/unlock the device
 2. Go to https://xteink.dve.al/ and click "Flash CrossPoint firmware"
 
 To revert back to the official firmware, you can flash the latest official firmware from https://xteink.dve.al/, or swap
@@ -65,6 +67,24 @@ back to the other partition using the "Swap boot partition" button here https://
 
 To revert back to the official firmware, you can flash the latest official firmware from https://xteink.dve.al/, or swap
 back to the other partition using the "Swap boot partition" button here https://xteink.dve.al/debug.
+
+### Command line (specific firmware version)
+
+1. Install [`esptool`](https://github.com/espressif/esptool) :
+```bash
+pip install esptool
+```
+2. Download the `firmware.bin` file from the release of your choice via the [releases page](https://github.com/crosspoint-reader/crosspoint-reader/releases)
+3. Connect your Xteink X4 to your computer via USB-C.
+4. Note the device location. On Linux, run `dmesg` after connecting. On MacOS, run :
+```bash
+log stream --predicate 'subsystem == "com.apple.iokit"' --info
+```
+5. Flash the firmware :
+```bash
+esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
+```
+Change `/dev/ttyACM0` to the device for your system.
 
 ### Manual
 
@@ -154,10 +174,12 @@ For more details on the internal file structures, see the [file formats document
 
 Contributions are very welcome!
 
+If you are new to the codebase, start with the [contributing docs](./docs/contributing/README.md).
+
 If you're looking for a way to help out, take a look at the [ideas discussion board](https://github.com/crosspoint-reader/crosspoint-reader/discussions/categories/ideas).
 If there's something there you'd like to work on, leave a comment so that we can avoid duplicated effort.
 
-Everyone here is a volunteer, so please be respectful and patient. For more details on our goverance and community 
+Everyone here is a volunteer, so please be respectful and patient. For more details on our governance and community 
 principles, please see [GOVERNANCE.md](GOVERNANCE.md).
 
 ### To submit a contribution:

@@ -1,18 +1,12 @@
 #pragma once
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
-
-#include <functional>
-
-#include "../ActivityWithSubactivity.h"
+#include "../Activity.h"
 #include "game/DungeonGenerator.h"
 #include "game/GameRenderer.h"
 #include "game/GameState.h"
 #include "game/GameTypes.h"
 
-class GameActivity final : public ActivityWithSubactivity {
+class GameActivity final : public Activity {
   // Level data (~5.5KB total)
   game::Tile tiles[game::MAP_SIZE];
   uint8_t fogOfWar[game::FOG_SIZE];
@@ -26,18 +20,9 @@ class GameActivity final : public ActivityWithSubactivity {
 
   // Rendering
   GameRenderer gameRenderer;
-  TaskHandle_t displayTaskHandle = nullptr;
-  SemaphoreHandle_t renderingMutex = nullptr;
-  bool updateRequired = false;
-
-  // Navigation
-  const std::function<void()> onGoHome;
+  bool rendererInitialized = false;
 
   // Internal methods
-  static void taskTrampoline(void* param);
-  [[noreturn]] void displayTaskLoop();
-  void render();
-
   void loadOrGenerateLevel();
   void saveCurrentLevel();
   void computeVisibility();
@@ -51,11 +36,11 @@ class GameActivity final : public ActivityWithSubactivity {
   void openGameMenu();
 
  public:
-  explicit GameActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::function<void()>& onGoHome)
-      : ActivityWithSubactivity("Game", renderer, mappedInput), onGoHome(onGoHome) {}
+  explicit GameActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+      : Activity("Game", renderer, mappedInput) {}
 
   void onEnter() override;
-  void onExit() override;
   void loop() override;
+  void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
 };

@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 
 #include "MappedInputManager.h"
+#include "activities/ActivityManager.h"
 #include "fontIds.h"
 
 // --- Pixel-art block letters (5 wide x 7 tall bitmaps) ---
@@ -51,7 +52,10 @@ void drawWord(GfxRenderer& renderer, const LetterEntry* letters, int count, int 
 
 void GameTitleActivity::onEnter() {
   Activity::onEnter();
+  requestUpdate();
+}
 
+void GameTitleActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const int centerX = pageWidth / 2;
 
@@ -103,13 +107,10 @@ void GameTitleActivity::onEnter() {
   renderer.drawCenteredText(UI_10_FONT_ID, 740, "[ press any key to continue ]");
 
   renderer.displayBuffer();
-  rendered = true;
 }
 
 void GameTitleActivity::loop() {
-  if (!rendered) return;
-
   if (mappedInput.wasAnyReleased()) {
-    onStartGame();
+    activityManager.startGame();
   }
 }

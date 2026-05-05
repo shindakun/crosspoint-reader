@@ -54,6 +54,9 @@ enum class CssFontWeight : uint8_t { Normal = 0, Bold = 1 };
 // Text decoration options
 enum class CssTextDecoration : uint8_t { None = 0, Underline = 1 };
 
+// Display options - only None and Block are relevant for e-ink rendering
+enum class CssDisplay : uint8_t { Block = 0, None = 1 };
+
 // Bitmask for tracking which properties have been explicitly set
 struct CssPropertyFlags {
   uint16_t textAlign : 1;
@@ -69,6 +72,9 @@ struct CssPropertyFlags {
   uint16_t paddingBottom : 1;
   uint16_t paddingLeft : 1;
   uint16_t paddingRight : 1;
+  uint16_t imageHeight : 1;
+  uint16_t imageWidth : 1;
+  uint16_t display : 1;
 
   CssPropertyFlags()
       : textAlign(0),
@@ -83,17 +89,22 @@ struct CssPropertyFlags {
         paddingTop(0),
         paddingBottom(0),
         paddingLeft(0),
-        paddingRight(0) {}
+        paddingRight(0),
+        imageHeight(0),
+        imageWidth(0),
+        display(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
-           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight;
+           marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
+           imageWidth || display;
   }
 
   void clearAll() {
     textAlign = fontStyle = fontWeight = textDecoration = textIndent = 0;
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
+    imageHeight = imageWidth = display = 0;
   }
 };
 
@@ -115,6 +126,9 @@ struct CssStyle {
   CssLength paddingBottom;  // Padding after
   CssLength paddingLeft;    // Padding left
   CssLength paddingRight;   // Padding right
+  CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
+  CssLength imageWidth;     // Width for img when both or only width set
+  CssDisplay display = CssDisplay::Block;  // display property (Block or None)
 
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
@@ -173,6 +187,18 @@ struct CssStyle {
       paddingRight = base.paddingRight;
       defined.paddingRight = 1;
     }
+    if (base.hasImageHeight()) {
+      imageHeight = base.imageHeight;
+      defined.imageHeight = 1;
+    }
+    if (base.hasImageWidth()) {
+      imageWidth = base.imageWidth;
+      defined.imageWidth = 1;
+    }
+    if (base.hasDisplay()) {
+      display = base.display;
+      defined.display = 1;
+    }
   }
 
   [[nodiscard]] bool hasTextAlign() const { return defined.textAlign; }
@@ -188,6 +214,9 @@ struct CssStyle {
   [[nodiscard]] bool hasPaddingBottom() const { return defined.paddingBottom; }
   [[nodiscard]] bool hasPaddingLeft() const { return defined.paddingLeft; }
   [[nodiscard]] bool hasPaddingRight() const { return defined.paddingRight; }
+  [[nodiscard]] bool hasImageHeight() const { return defined.imageHeight; }
+  [[nodiscard]] bool hasImageWidth() const { return defined.imageWidth; }
+  [[nodiscard]] bool hasDisplay() const { return defined.display; }
 
   void reset() {
     textAlign = CssTextAlign::Left;
@@ -197,6 +226,8 @@ struct CssStyle {
     textIndent = CssLength{};
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};
+    imageHeight = imageWidth = CssLength{};
+    display = CssDisplay::Block;
     defined.clearAll();
   }
 };
